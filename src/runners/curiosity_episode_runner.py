@@ -1,58 +1,32 @@
+from tokenize import group
 from envs import REGISTRY as env_REGISTRY
+from modules.mixers import REGISTRY as mix_REGISTRY
 from functools import partial
 from components.episode_buffer import EpisodeBatch
 import numpy as np
+import torch as th
+from .episode_runner import EpisodeRunner
 
 
-class EpisodeRunner:
-
+class CuriosityEpisodeRunner(EpisodeRunner):
     def __init__(self, args, logger):
-        self.args = args
-        self.logger = logger
-        self.batch_size = self.args.batch_size_run
-        assert self.batch_size == 1
-
-        self.env = env_REGISTRY[self.args.env](**self.args.env_args)
-        self.episode_limit = self.env.episode_limit
-        self.t = 0
-
-        self.t_env = 0
-
-        self.train_returns = []
-        self.test_returns = []
-        self.train_stats = {}
-        self.test_stats = {}
-
-        # Log the first run
-        self.log_train_stats_t = -1000000
-
-    def cuda(self):
-        pass
+        super().__init__(args=args, logger=logger)
+        self.int_reward_ind_beta = self.args.int_reward_ind_beta
+        self.int_reward_cen_beta = self.args.int_reward_cen_beta
+        self.int_reward_clip = self.args.int_reward_clip
+        self.train_int_returns = []
 
     def setup(self, scheme, groups, preprocess, mac):
-        self.new_batch = partial(EpisodeBatch, scheme, groups, self.batch_size, self.episode_limit + 1,
-                                 preprocess=preprocess, device=self.args.device)
-        self.mac = mac
-
-    def get_env_info(self):
-        return self.env.get_env_info()
-
-    def save_replay(self):
-        self.env.save_replay()
-
-    def close_env(self):
-        self.env.close()
-
-    def reset(self):
-        self.batch = self.new_batch()
-        self.env.reset()
-        self.t = 0
+        super().setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
+        self.n_agents = self.mac.n_agents
+        self.n_actions = self.mac.n_actions
 
     def run(self, test_mode=False):
         self.reset()
 
         terminated = False
         episode_return = 0
+        episode_int_return = 0
         self.mac.init_hidden(batch_size=self.batch_size)
 
         while not terminated:
@@ -65,16 +39,34 @@ class EpisodeRunner:
 
             self.batch.update(pre_transition_data, ts=self.t)
 
-            # Pass the entire batch of experiences up till now to the agents
-            # Receive the actions for each agent at this timestep in a batch of size 1
             actions = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
 
             reward, terminated, env_info = self.env.step(actions[0])
             episode_return += reward
 
+            intrinsic_reward = th.zeros(self.batch_size, self.n_agents, device=self.args.device)
+            if (not test_mode and
+                np.maximum(self.int_reward_cen_beta, self.int_reward_ind_beta)>0):
+                counts_t = self.mac.counts_t
+                act_counts_t = self.mac.act_counts_t
+                if self.int_reward_ind_beta:
+                    state_action_counts = th.gather(
+                        act_counts_t, dim=2,
+                        index=actions.view(self.batch_size, self.n_agents, 1),
+                    ).squeeze(dim=-1)
+                    intrinsic_reward += self.int_reward_ind_beta / th.sqrt(state_action_counts+0.1)
+                if self.int_reward_cen_beta:
+                    state_counts = (
+                        counts_t[(th.arange(self.batch_size),) + actions.T.split(split_size=1, dim=0)].view(self.batch_size, 1)
+                    )
+                    intrinsic_reward += self.int_reward_cen_beta / th.sqrt(state_counts+0.1)
+                intrinsic_reward = intrinsic_reward.clamp(min=0, max=self.int_reward_clip)
+                episode_int_return += intrinsic_reward.mean().cpu()
+
             post_transition_data = {
                 "actions": actions,
                 "reward": [(reward,)],
+                "intrinsic_reward": intrinsic_reward,
                 "terminated": [(terminated != env_info.get("episode_limit", False),)],
             }
 
@@ -93,7 +85,7 @@ class EpisodeRunner:
         actions = self.mac.select_actions(self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode)
         self.batch.update({"actions": actions}, ts=self.t)
 
-        # Update action selector after each episode if needed
+        # Update action selector after each episode if needed (ie BootstrapDQN)
         self.mac.update_action_selector()
 
         cur_stats = self.test_stats if test_mode else self.train_stats
@@ -107,26 +99,16 @@ class EpisodeRunner:
             self.t_env += self.t
 
         cur_returns.append(episode_return)
+        self.train_int_returns.append(episode_int_return)
 
         if test_mode and (len(self.test_returns) == self.args.test_nepisode):
             self._log(cur_returns, cur_stats, log_prefix)
         elif self.t_env - self.log_train_stats_t >= self.args.runner_log_interval:
+            cur_stats_copy = cur_stats.copy()
             self._log(cur_returns, cur_stats, log_prefix)
+            self._log(self.train_int_returns, cur_stats_copy, f"{log_prefix}intrinsic_")
             if hasattr(self.mac.action_selector, "epsilon"):
                 self.logger.log_stat("epsilon", self.mac.action_selector.epsilon, self.t_env)
             self.log_train_stats_t = self.t_env
 
         return self.batch
-
-    def _log(self, returns, stats, prefix):
-        self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
-        self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)
-        returns.clear()
-
-        for k, v in stats.items():
-            if k != "n_episodes":
-                self.logger.log_stat(prefix + k + "_mean" , v/stats["n_episodes"], self.t_env)
-        stats.clear()
-
-    def save_models(self, path):
-        pass

@@ -1,0 +1,56 @@
+# --- QMIX specific parameters ---
+
+# use epsilon greedy action selector
+action_selector: "epsilon_greedy"
+epsilon_start: 0.0
+epsilon_finish: 0.0
+epsilon_anneal_time: 50000
+evaluation_epsilon: 0.0
+
+runner: "noise_parallel"
+batch_size_run: 8       # num env run in parallel
+
+buffer_size: 5000   # pc mode buffer_size: 500
+batch_size: 32  # Number of episodes to train on
+
+# update the target network every {} episodes if >1, else soft update
+target_update_interval_or_tau: 200
+
+# ns: no parameter sharing
+mac: "noise_mac"
+agent: "noise_rnn"
+
+# Noise RNN agent
+noise_dim: 2
+mi_loss: 1
+rnn_discrim: False
+discrim_size: 64
+discrim_layers: 3
+
+obs_agent_id: True
+obs_last_action: False
+obs_individual_obs: False
+
+# use the Q_Learner to train
+hidden_dim: 64
+lr: 0.0005
+standardise_rewards: True
+agent_output_type: "q"
+learner: "noise_q_learner"
+double_q: True
+mixer: "qmix"
+use_rnn: True      # rnn: use GRU
+mixing_embed_dim: 32
+hypernet_layers: 2
+hypernet_embed: 64
+skip_connections: False
+
+name: "noise_mix_smac_parallel"
+
+t_max: 4100000
+save_model: False
+save_model_interval: 400000
+# 41 evaluations during training, each eval point runs 100 episodes
+test_nepisode: 100
+test_interval: 100000
+log_interval: 100000

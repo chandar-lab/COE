@@ -37,8 +37,10 @@ def run(_run, _config, _log):
     try:
         map_name = _config["env_args"]["map_name"]
     except:
-        map_name = _config["env_args"]["key"]   
-    unique_token = f"{_config['name']}_seed{_config['seed']}_{map_name}_{datetime.datetime.now()}"
+        map_name = _config["env_args"]["key"]
+    if ':' in map_name:
+        map_name = map_name.split(':')[-1]
+    unique_token = f"{_config['name']}_{map_name}_seed{_config['seed']}_{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')}"
 
     args.unique_token = unique_token
     if args.use_tensorboard:
@@ -47,6 +49,14 @@ def run(_run, _config, _log):
         )
         tb_exp_direc = os.path.join(tb_logs_direc, "{}").format(unique_token)
         logger.setup_tb(tb_exp_direc)
+
+    if args.use_wandb:
+        wandb_logs_direc = os.path.join(
+            _config["local_results_path"],
+            'wandb_logs', _config['name'], map_name
+        )
+        os.makedirs(wandb_logs_direc, exist_ok=True)
+        logger.setup_wandb(wandb_logs_direc, _config)
 
     # sacred is on by default
     logger.setup_sacred(_run)
@@ -67,7 +77,7 @@ def run(_run, _config, _log):
     print("Exiting script")
 
     # Making sure framework really exits
-    # os._exit(os.EX_OK)
+    os._exit(os.EX_OK)
 
 
 def evaluate_sequential(args, runner):
@@ -91,6 +101,7 @@ def run_sequential(args, logger):
     args.n_agents = env_info["n_agents"]
     args.n_actions = env_info["n_actions"]
     args.state_shape = env_info["state_shape"]
+    args.episode_limit = env_info["episode_limit"]
 
     # Default/Base scheme
     scheme = {
@@ -103,8 +114,11 @@ def run_sequential(args, logger):
             "dtype": th.int,
         },
         "reward": {"vshape": (1,)},
+        "intrinsic_reward": {"vshape": (args.n_agents,)},
         "terminated": {"vshape": (1,), "dtype": th.uint8},
     }
+    if getattr(args, "noise_dim", 0) > 0:
+        scheme["noise"] = {"vshape": (args.noise_dim,)}
     groups = {"agents": args.n_agents}
     preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
 
@@ -128,6 +142,7 @@ def run_sequential(args, logger):
 
     if args.use_cuda:
         learner.cuda()
+        runner.cuda()
 
     if args.checkpoint_path != "":
 
@@ -145,7 +160,15 @@ def run_sequential(args, logger):
             full_name = os.path.join(args.checkpoint_path, name)
             # Check if they are dirs the names of which are numbers
             if os.path.isdir(full_name) and name.isdigit():
-                timesteps.append(int(name))
+                # Check if models in this dir are empty
+                exist_empty_model = False
+                for model in os.listdir(full_name):
+                    model_path = os.path.join(full_name, model)
+                    if os.path.getsize(model_path) == 0:
+                        exist_empty_model = True
+                        break
+                if not exist_empty_model:
+                    timesteps.append(int(name))
 
         if args.load_step == 0:
             # choose the max timestep
@@ -216,13 +239,18 @@ def run_sequential(args, logger):
             for _ in range(n_test_runs):
                 runner.run(test_mode=True)
 
+            if args.noise_bandit:
+                for _ in range(n_test_runs):
+                    runner.run(test_mode=True, test_uniform=True)
+
         if args.save_model and (
             runner.t_env - model_save_time >= args.save_model_interval
             or model_save_time == 0
         ):
             model_save_time = runner.t_env
             save_path = os.path.join(
-                args.local_results_path, "models", args.unique_token, str(runner.t_env)
+                # Use hp_token instead of unique_token to quickly identify the corresponding run
+                args.local_results_path, "models", args.hp_token, str(runner.t_env)
             )
             # "results/models/{}".format(unique_token)
             os.makedirs(save_path, exist_ok=True)
@@ -231,6 +259,7 @@ def run_sequential(args, logger):
             # learner should handle saving/loading -- delegate actor save/load to mac,
             # use appropriate filenames to do critics, optimizer states
             learner.save_models(save_path)
+            runner.save_models(save_path)
 
         episode += args.batch_size_run
 

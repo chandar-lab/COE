@@ -11,6 +11,8 @@ class QMixer(nn.Module):
         self.args = args
         self.n_agents = args.n_agents
         self.state_dim = int(np.prod(args.state_shape))
+        if args.mixer == "noise_qmix":
+            self.state_dim += getattr(args, "noise_dim", 0)
 
         self.embed_dim = args.mixing_embed_dim
 
@@ -30,6 +32,12 @@ class QMixer(nn.Module):
         else:
             raise Exception("Error setting number of hypernet layers.")
 
+        # Initialise the hyper-network of the skip-connections, such that the result is close to VDN
+        self.use_skip_connections = getattr(args, "skip_connections", False)
+        if self.use_skip_connections:
+            self.skip_connections = nn.Linear(self.state_dim, self.args.n_agents, bias=True)
+            self.skip_connections.bias.data.fill_(1.0)  # bias produces initial VDN weights
+
         # State dependent bias for hidden layer
         self.hyper_b_1 = nn.Linear(self.state_dim, self.embed_dim)
 
@@ -38,7 +46,7 @@ class QMixer(nn.Module):
                                nn.ReLU(),
                                nn.Linear(self.embed_dim, 1))
 
-    def forward(self, agent_qs, states):
+    def forward(self, agent_qs, states, **kwargs):
         bs = agent_qs.size(0)
         states = states.reshape(-1, self.state_dim)
         agent_qs = agent_qs.view(-1, 1, self.n_agents)
@@ -53,8 +61,13 @@ class QMixer(nn.Module):
         w_final = w_final.view(-1, self.embed_dim, 1)
         # State-dependent bias
         v = self.V(states).view(-1, 1, 1)
+        # Skip connections
+        s = 0
+        if self.use_skip_connections:
+            ws = th.abs(self.skip_connections(states)).view(-1, self.n_agents, 1)
+            s = th.bmm(agent_qs, ws)    # non-negative linear combination of agent utilities
         # Compute final output
-        y = th.bmm(hidden, w_final) + v
+        y = th.bmm(hidden, w_final) + v + s
         # Reshape and return
         q_tot = y.view(bs, -1, 1)
         return q_tot

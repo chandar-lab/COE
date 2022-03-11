@@ -7,6 +7,7 @@ class Logger:
         self.console_logger = console_logger
 
         self.use_tb = False
+        self.use_wandb = False
         self.use_sacred = False
         self.use_hdf = False
 
@@ -19,6 +20,23 @@ class Logger:
         self.tb_logger = log_value
         self.use_tb = True
 
+    def setup_wandb(self, directory_name, config_dict):
+        # Import here so it doesn't have to be installed if you don't use it
+        import wandb
+        wandb.init(project="coe", dir=directory_name, config=config_dict, mode="offline")
+        try:
+            env_name = config_dict["env_args"]["map_name"]
+        except:
+            env_name = config_dict["env_args"]["key"]
+        if ':' in env_name:
+            env_name = env_name.split(':')[-1]
+
+        wandb.run.name = (
+            f"{env_name}_{config_dict['name']}"
+            + f"_seed{config_dict['seed']}")
+        self.wandb_logger = wandb.log
+        self.use_wandb = True
+
     def setup_sacred(self, sacred_run_dict):
         self._run_obj = sacred_run_dict
         self.sacred_info = sacred_run_dict.info
@@ -30,6 +48,10 @@ class Logger:
         if self.use_tb:
             self.tb_logger(key, value, t)
 
+        if self.use_wandb:
+            self.wandb_logger({key: value,
+                               key+'_step': t})
+
         if self.use_sacred and to_sacred:
             if key in self.sacred_info:
                 self.sacred_info["{}_T".format(key)].append(t)
@@ -37,7 +59,7 @@ class Logger:
             else:
                 self.sacred_info["{}_T".format(key)] = [t]
                 self.sacred_info[key] = [value]
-            
+
             self._run_obj.log_scalar(key, value, t)
 
     def print_recent_stats(self):
@@ -68,4 +90,3 @@ def get_logger():
     logger.setLevel('DEBUG')
 
     return logger
-

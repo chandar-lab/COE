@@ -3,6 +3,7 @@ from components.action_selectors import REGISTRY as action_REGISTRY
 import torch as th
 from torch.autograd import Variable
 import torch.nn.functional as F
+from controllers.base_controller import BaseMAC
 
 
 def onehot_from_logits(logits, eps=0.0):
@@ -46,7 +47,7 @@ def gumbel_softmax(logits, temperature=1.0, hard=False):
 
 
 # This multi-agent controller shares parameters between agents
-class MADDPGMAC:
+class MADDPGMAC(BaseMAC):
     def __init__(self, scheme, groups, args):
         self.n_agents = args.n_agents
         self.args = args

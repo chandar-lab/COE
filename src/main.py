@@ -14,6 +14,9 @@ import yaml
 
 from run import run
 
+import warnings
+warnings.filterwarnings("ignore")
+
 SETTINGS['CAPTURE_MODE'] = "fd" # set to "no" if you want to see stdout/stderr in console
 logger = get_logger()
 
@@ -21,8 +24,6 @@ ex = Experiment("pymarl")
 ex.logger = logger
 ex.captured_out_filter = apply_backspaces_and_linefeeds
 
-results_path = os.path.join(dirname(dirname(abspath(__file__))), "results")
-# results_path = "/home/ubuntu/data"
 
 @ex.main
 def my_main(_run, _config, _log):
@@ -92,25 +93,30 @@ if __name__ == '__main__':
     try:
         map_name = config_dict["env_args"]["map_name"]
     except:
-        map_name = config_dict["env_args"]["key"]    
-    
-    
+        map_name = config_dict["env_args"]["key"]
+
+
     # now add all the config to sacred
     ex.add_config(config_dict)
-    
+
     for param in params:
         if param.startswith("env_args.map_name"):
             map_name = param.split("=")[1]
         elif param.startswith("env_args.key"):
             map_name = param.split("=")[1]
+    if ":" in map_name:
+        map_name = map_name.split(":")[-1].strip('"')
 
     # Save to disk by default for sacred
     logger.info("Saving to FileStorageObserver in results/sacred.")
-    file_obs_path = os.path.join(results_path, f"sacred/{config_dict['name']}/{map_name}")
+    file_obs_path = os.path.join(
+        config_dict["local_results_path"],
+        "sacred", config_dict["name"], map_name,
+        config_dict["hp_token"],
+    )
 
     # ex.observers.append(MongoObserver(db_name="marlbench")) #url='172.31.5.187:27017'))
     ex.observers.append(FileStorageObserver.create(file_obs_path))
     # ex.observers.append(MongoObserver())
 
     ex.run_commandline(params)
-

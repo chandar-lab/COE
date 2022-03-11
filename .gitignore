@@ -246,3 +246,24 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.gitignore.io/api/linux,python,windows,pycharm+all,visualstudiocode
+
+# vscode folder
+.vscode/
+
+# results folder
+results/
+
+# excluded files & directories for rsync
+exclude_list.txt
+
+# environments folders
+3rdparty/
+
+# Temporary config files
+src/config/algs/tmp/
+
+# mac temp
+__MACOSX/
+
+# logs
+logs/

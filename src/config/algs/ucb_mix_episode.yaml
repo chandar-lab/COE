@@ -1,0 +1,62 @@
+# --- IQL specific parameters ---
+
+action_selector: "epsilon_greedy"
+epsilon_start: 0.0
+epsilon_finish: 0.0
+epsilon_anneal_time: 200000
+evaluation_epsilon: 0.0
+
+runner: "curiosity_episode"
+
+buffer_size: 5000
+batch_size: 32  # Number of episodes to train on
+
+# update the target network every {} episodes if >1, else soft update
+target_update_interval_or_tau: 0.01
+
+# ns: no parameter sharing
+mac: "ucb_mac"
+agent: "rnn"
+
+obs_agent_id: true
+obs_last_action: False
+obs_individual_obs: False
+
+# use the Q_Learner to train
+hidden_dim: 128
+lr: 0.0005
+standardise_rewards: True
+agent_output_type: "q"
+learner: "ucb_learner"
+double_q: True
+use_rnn: True      # rnn: use GRU
+mixer: "none"
+mixing_embed_dim: 32
+hypernet_layers: 2
+hypernet_embed: 64
+
+# Count
+counter: "simhash_dict"   # src/modules/counters
+calculate_ucb_fn: "conditional"
+confidence_fn: "ucb1"
+ucb_optim_init: 0
+ucb_conf_decay: 1
+decay_factor: 1.0
+key_dim: 16
+ucb_act_cp: 1.0
+ucb_learn_cp: 1.0
+ucb_learn_optim_learner: 0
+int_reward_ind_beta: 0.1
+int_reward_cen_beta: 0.1
+int_reward_clip: 5.0
+
+
+name: "ucb_mix"
+
+t_max: 4102000
+save_model: False
+save_model_interval: 500000
+# 41 evaluations during training, each eval point runs 100 episodes
+test_nepisode: 100
+test_interval: 100000
+log_interval: 100000

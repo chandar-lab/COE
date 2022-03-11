@@ -1,10 +1,26 @@
 import torch as th
+import torch.nn.functional as F
 from torch.distributions import Categorical
+import numpy as np
 from .epsilon_schedules import DecayThenFlatSchedule
 REGISTRY = {}
 
 
-class MultinomialActionSelector():
+class BaseActionSelector():
+    def __init__(self, args):
+        pass
+
+    def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
+        random_actions = Categorical(avail_actions.float()).sample().long()
+        return random_actions
+
+    def update_parameter(self):
+        pass
+
+REGISTRY["random"] = BaseActionSelector
+
+
+class MultinomialActionSelector(BaseActionSelector):
 
     def __init__(self, args):
         self.args = args
@@ -31,7 +47,7 @@ class MultinomialActionSelector():
 REGISTRY["multinomial"] = MultinomialActionSelector
 
 
-class EpsilonGreedyActionSelector():
+class EpsilonGreedyActionSelector(BaseActionSelector):
 
     def __init__(self, args):
         self.args = args
@@ -64,13 +80,27 @@ class EpsilonGreedyActionSelector():
 REGISTRY["epsilon_greedy"] = EpsilonGreedyActionSelector
 
 
-class SoftPoliciesSelector():
+class SoftPoliciesSelector(BaseActionSelector):
 
     def __init__(self, args):
         self.args = args
+        self.epsilon = self.schedule.eval(0)
 
     def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
-        m = Categorical(agent_inputs)
+        masked_inputs = agent_inputs.clone()
+        self.epsilon = self.schedule.eval(t_env)
+
+        if not test_mode:
+            epsilon_action_num = masked_inputs.size(-1)
+            if getattr(self.args, "mask_before_softmax", True):
+                epsilon_action_num = avail_actions.sum(dim=-1, keepdim=True).float()
+            masked_inputs = (
+                (1 - self.epsilon) * masked_inputs
+                + th.ones_like(masked_inputs) * self.epsilon/epsilon_action_num)
+            if getattr(self.args, "mask_before_softmax", True):
+                masked_inputs[avail_actions == 0] = 0.0
+
+        m = Categorical(masked_inputs)
         picked_actions = m.sample().long()
         return picked_actions
 

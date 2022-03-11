@@ -7,7 +7,7 @@ then
 fi
 
 echo "EXP_DIR: $EXP_DIR"
-cd $EXP_DIR/pymarl
+cd $EXP_DIR/COE
 
 mkdir 3rdparty
 cd 3rdparty
@@ -15,11 +15,12 @@ cd 3rdparty
 export SC2PATH=`pwd`'/StarCraftII'
 echo 'SC2PATH is set to '$SC2PATH
 
+# Original pymarl (https://github.com/oxwhirl/pymarl) installs SC2.4.10
 if [ ! -d $SC2PATH ]; then
         echo 'StarCraftII is not installed. Installing now ...';
-        wget http://blzdistsc2-a.akamaihd.net/Linux/SC2.4.6.2.69232.zip
-        unzip -P iagreetotheeula SC2.4.6.2.69232.zip
-        rm -rf SC2.4.6.2.69232.zip
+        wget http://blzdistsc2-a.akamaihd.net/Linux/SC2.4.10.zip
+        unzip -P iagreetotheeula SC2.4.10.zip
+        rm -rf SC2.4.10.zip
 else
         echo 'StarCraftII is already installed.'
 fi
@@ -39,4 +40,3 @@ mv SMAC_Maps $MAP_DIR
 rm -rf SMAC_Maps.zip
 
 echo 'StarCraft II and SMAC are installed.'
-
